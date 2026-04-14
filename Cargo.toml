@@ -1,0 +1,24 @@
+[package]
+name = "edge_bmd_atem"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/FlowingSPDG/edge-bmd-atem"
+description = "Blackmagic ATEM BURP/UDP protocol for embedded (edge-nal / Embassy)"
+keywords = ["atem", "blackmagic", "embedded", "no_std"]
+categories = ["embedded", "network-programming"]
+
+[features]
+default = []
+# Host / integration tests: Tokio-backed UDP and async timeouts.
+std = ["dep:tokio"]
+
+[dependencies]
+embedded-io-async = { version = "0.7", default-features = false }
+tokio = { version = "1.47", optional = true, features = ["macros", "net", "rt-multi-thread", "time"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+module_name_repetitions = "allow"
