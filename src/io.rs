@@ -20,3 +20,16 @@ pub trait UdpReceive: ErrorType {
 pub trait UdpSend: ErrorType {
     async fn send(&mut self, remote: SocketAddr, data: &[u8]) -> Result<(), Self::Error>;
 }
+
+/// Bounded wait for a datagram (Embassy `select(recv, Timer)` / host `timeout` pattern).
+///
+/// Implementations should block for **up to** `timeout_ms` when no datagram is ready, then
+/// return [`Ok(None)`]. When a datagram arrives sooner, return it immediately. The value
+/// `timeout_ms` is always `>= 1` when called from [`crate::AtemSession::connect`].
+pub trait UdpReceiveBounded: UdpReceive {
+    async fn receive_for(
+        &mut self,
+        buffer: &mut [u8],
+        timeout_ms: u32,
+    ) -> Result<Option<(usize, SocketAddr)>, Self::Error>;
+}
