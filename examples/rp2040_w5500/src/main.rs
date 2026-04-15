@@ -40,6 +40,14 @@ static HEAP: LlffHeap = LlffHeap::empty();
 /// ATEM IPv4 (same subnet as DHCP). Change for your network.
 const ATEM_IPV4: Ipv4Addr = Ipv4Addr::new(192, 168, 1, 101);
 
+/// Seconds between automatic handshake attempts (Connect + dump, same as one-shot demo).
+const AUTO_HANDSHAKE_INTERVAL_SECS: u64 = 30;
+
+fn random_init_sid(rng: &mut RoscRng) -> u16 {
+    let v = (rng.next_u32() & 0x7fff) as u16;
+    if v == 0 { 0x2970 } else { v }
+}
+
 bind_interrupts!(struct Irqs {
     DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>, dma::InterruptHandler<DMA_CH1>;
 });

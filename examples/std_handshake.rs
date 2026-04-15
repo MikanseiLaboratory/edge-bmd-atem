@@ -3,7 +3,8 @@
 //! ```text
 //! cargo run --example std_handshake --features std -- 192.168.1.240
 //! cargo run --example std_handshake --features std -- --verbose 192.168.1.240
-//! cargo run --example std_handshake --features std -- --listen-ms=2000 192.168.1.240
+//! cargo run --example std_handshake --features std -- --listen-ms 2000 192.168.1.240
+//! cargo run --example std_handshake --features std -- --help
 //! ```
 //!
 //! Address: first positional argument or `ATEM_ADDR` (e.g. `192.168.1.240:9910`).
@@ -19,6 +20,7 @@ use std::io;
 use std::str::FromStr as _;
 use std::time::Duration;
 
+use clap::Parser;
 use edge_bmd_atem::io::{ErrorType, UdpReceive, UdpSend};
 use edge_bmd_atem::{
     AtemControl, AtemPacket, AtemPacketPayload, AtemSession, SessionConfig, ATEM_UDP_PORT,
@@ -57,14 +59,36 @@ impl UdpReceive for TokioUdp {
     }
 }
 
+#[derive(Parser, Debug)]
+#[command(
+    name = "std_handshake",
+    version,
+    about = "ATEM UDP connect handshake (uses AtemSession::connect)",
+    after_long_help = "Environment (when not overridden by CLI):\n  ATEM_ADDR       if ADDR is omitted\n  ATEM_INIT_SID   initial session id, hex or decimal [default: 0x2970]\n  ATEM_TIMEOUT_MS handshake wait [default: 3000]\n  ATEM_LISTEN_MS  post-handshake recv window if --listen-ms omitted\n  ATEM_VERBOSE    1/true/yes/on enables verbose with or without -v"
+)]
+struct Cli {
+    /// host:port or IP (port defaults to 9910). Omit if `ATEM_ADDR` is set.
+    #[arg(value_name = "ADDR")]
+    addr: Option<String>,
+
+    /// Log local bind, config, and unexpected UDP sources.
+    #[arg(short, long)]
+    verbose: bool,
+
+    /// After handshake OK, recv and print packets for this many milliseconds.
+    #[arg(long, value_name = "MS")]
+    listen_ms: Option<u64>,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let Cli { verbose, listen_ms } = parse_cli()?;
+    let cli = Cli::parse();
+    let verbose = cli.verbose || env_flag_truthy("ATEM_VERBOSE");
+    let listen_ms = cli.listen_ms.or(parse_listen_ms_env()?).unwrap_or(0);
 
-    let atem = parse_atem_addr()?;
+    let atem = parse_atem_addr(cli.addr.as_deref())?;
     let init_sid = parse_init_sid()?;
     let timeout_ms = parse_timeout_ms()?;
-    let listen_ms = listen_ms.or(parse_listen_ms_env()?).unwrap_or(0);
 
     if verbose {
         eprintln!(
@@ -105,71 +129,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-struct Cli {
-    verbose: bool,
-    listen_ms: Option<u64>,
-}
-
-fn parse_cli() -> Result<Cli, Box<dyn std::error::Error>> {
-    let mut verbose = env_flag_truthy("ATEM_VERBOSE");
-    let mut listen_ms: Option<u64> = None;
-    let mut positional: Vec<String> = Vec::new();
-
-    for a in env::args().skip(1) {
-        match a.as_str() {
-            "-h" | "--help" | "help" => {
-                print_help();
-                std::process::exit(0);
-            }
-            "-v" | "--verbose" => verbose = true,
-            s if s.starts_with("--listen-ms=") => {
-                listen_ms = Some(
-                    s["--listen-ms=".len()..]
-                        .parse()
-                        .map_err(|_| "invalid --listen-ms value")?,
-                );
-            }
-            s if s == "--listen-ms" => {
-                return Err("expected --listen-ms=<u64>".into());
-            }
-            _ if a.starts_with('-') => {
-                return Err(format!("unknown flag: {a}").into());
-            }
-            _ => positional.push(a),
-        }
-    }
-
-    if let Some(first) = positional.first() {
-        env::set_var("ATEM_ADDR", first);
-    }
-
-    Ok(Cli { verbose, listen_ms })
-}
-
-fn print_help() {
-    eprintln!(
-        "\
-std_handshake — ATEM UDP connect handshake (uses AtemSession::connect)
-
-USAGE:
-    cargo run --example std_handshake --features std -- [OPTIONS] <ADDR>
-    cargo run --example std_handshake --features std -- [OPTIONS]   (uses ATEM_ADDR)
-
-OPTIONS:
-    -v, --verbose       Log local bind, config, unexpected UDP sources
-    --listen-ms=<N>     After OK, recv/print packets for N milliseconds
-    -h, --help          This help
-
-ENVIRONMENT:
-    ATEM_ADDR          host:port or IP (port defaults to {ATEM_UDP_PORT})
-    ATEM_INIT_SID      initial session id, hex (0x2970) or decimal [default: 0x2970]
-    ATEM_TIMEOUT_MS    handshake timeout [default: 3000]
-    ATEM_LISTEN_MS     same as --listen-ms when flag omitted
-    ATEM_VERBOSE       set to 1/true/yes to enable verbose
-"
-    );
-}
-
 fn env_flag_truthy(name: &str) -> bool {
     env::var(name)
         .ok()
@@ -182,10 +141,11 @@ fn env_flag_truthy(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn parse_atem_addr() -> Result<SocketAddr, Box<dyn std::error::Error>> {
-    let arg = env::var("ATEM_ADDR").map_err(|_| {
-        "missing address: pass <IP|host:port> or set ATEM_ADDR (see --help)"
-    })?;
+fn parse_atem_addr(addr_arg: Option<&str>) -> Result<SocketAddr, Box<dyn std::error::Error>> {
+    let arg = addr_arg
+        .map(str::to_owned)
+        .or_else(|| env::var("ATEM_ADDR").ok())
+        .ok_or("missing address: pass ADDR or set ATEM_ADDR (see --help)")?;
 
     if let Ok(a) = SocketAddr::from_str(&arg) {
         return Ok(a);

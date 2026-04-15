@@ -22,6 +22,7 @@ name = "std_handshake"
 required-features = ["std"]
 
 [dev-dependencies]
+clap = { version = "4.5", features = ["derive"] }
 embedded-io-async = { version = "0.7", features = ["std"] }
 
 [lints.rust]
