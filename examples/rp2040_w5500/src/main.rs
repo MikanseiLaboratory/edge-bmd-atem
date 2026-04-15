@@ -2,7 +2,8 @@
 //! - One packet with **`CTTp`** (next Auto transition style) and, if enabled, **`CPvI` / `CPgI`**
 //!   (preview/program — **off by default** so routing is not changed unexpectedly).
 //! - Periodic **`DAut`** (Auto transition).
-//! - Optional one-shot **`FtbA`** after a delay (`FTB_AUTO_DEMO_AFTER_SECS`).
+//! - Optional one-shot **`FtbA`** after a delay (`FTB_AUTO_DEMO_AFTER_SECS`), optional one **`DCut`**
+//!   (`SEND_DEMO_CUT_AFTER_INCM`).
 //!
 //! Edit `ATEM_IPV4` before flashing. See `README.md` in this directory.
 
@@ -19,8 +20,8 @@ use defmt::*;
 use edge_bmd_atem::{
     encode_atom_change_preview_input, encode_atom_change_program_input,
     encode_atom_change_transition_next, encode_atom_do_ftb_auto, encode_atom_do_transition_auto,
-    AtomIter, AtemControl, AtemPacket, AtemPacketFlags, AtemPacketPayload, NextTransitionStyle,
-    ATEM_UDP_PORT,
+    encode_atom_do_transition_cut, AtomIter, AtemControl, AtemPacket, AtemPacketFlags,
+    AtemPacketPayload, NextTransitionStyle, ATEM_UDP_PORT,
     Error as PError,
 };
 use embedded_alloc::LlffHeap;
@@ -69,6 +70,9 @@ const PROGRAM_INPUT: u16 = 1;
 
 /// After `InCm`, send one **`FtbA`** when this many seconds elapse (`0` = never).
 const FTB_AUTO_DEMO_AFTER_SECS: u64 = 0;
+
+/// If true, sends one **`DCut`** immediately after the post-InCm atom packet (off by default).
+const SEND_DEMO_CUT_AFTER_INCM: bool = false;
 
 /// Seconds between **Auto** (transition) commands while connected.
 const AUTO_TRANSITION_INTERVAL_SECS: u64 = 10;
@@ -458,6 +462,20 @@ async fn main(spawner: Spawner) {
             Err(_) => warn!("post-InCm atoms: UDP send failed"),
         },
         Err(_) => warn!("post-InCm atoms: encode failed"),
+    }
+
+    if SEND_DEMO_CUT_AFTER_INCM {
+        let cut = encode_atom_do_transition_cut(ATEM_ME_INDEX);
+        match write_atoms_cmd(session_id, next_sender, &cut, &mut tx_cmd) {
+            Ok(n) => match socket.send_to(&tx_cmd[..n], (atem_ip, ATEM_UDP_PORT)).await {
+                Ok(()) => {
+                    info!("Sent demo DCut sender_pid={}", next_sender);
+                    next_sender = bump_sender_packet_id(next_sender);
+                }
+                Err(_) => warn!("demo DCut: UDP send failed"),
+            },
+            Err(_) => warn!("demo DCut: encode failed"),
+        }
     }
 
     let ready_at = Instant::now();
