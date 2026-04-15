@@ -1,0 +1,10 @@
+This project includes protocol structure and behaviour derived from
+study of the "necromancer" project (Apache-2.0):
+
+  https://github.com/micolous/necromancer
+
+Attribution: Michael Farrell and necromancer contributors.
+
+UDP trait signatures in this crate follow the `edge-nal` 0.6 `UdpSend` / `UdpReceive`
+contracts (MIT OR Apache-2.0) without linking that crate, so host `cargo test` stays
+free of `embassy-time` driver symbols.
