@@ -38,7 +38,7 @@ static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP
 static HEAP: LlffHeap = LlffHeap::empty();
 
 /// ATEM IPv4 (same subnet as DHCP). Change for your network.
-const ATEM_IPV4: Ipv4Addr = Ipv4Addr::new(192, 168, 1, 240);
+const ATEM_IPV4: Ipv4Addr = Ipv4Addr::new(192, 168, 1, 101);
 
 bind_interrupts!(struct Irqs {
     DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>, dma::InterruptHandler<DMA_CH1>;
