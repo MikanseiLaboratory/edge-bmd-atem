@@ -124,6 +124,27 @@ pub struct RawAtomSlice<'a> {
     pub data: &'a [u8],
 }
 
+/// One `DAut` atom on the wire (`DoTransitionAuto` in necromancer `atom::transitions::Auto`).
+///
+/// `me` is the mix-effect index (`0` = first ME). Padding matches necromancer `pad_size_to = 4`.
+#[must_use]
+pub const fn encode_atom_do_transition_auto(me: u8) -> [u8; 12] {
+    [
+        0x00,
+        0x0c,
+        0x00,
+        0x00,
+        b'D',
+        b'A',
+        b'u',
+        b't',
+        me,
+        0,
+        0,
+        0,
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,5 +160,16 @@ mod tests {
         assert_eq!(atoms.len(), 1);
         assert_eq!(atoms[0].name.0, *b"RFIP");
         assert_eq!(atoms[0].data.len(), 0x1c - 8);
+    }
+
+    #[test]
+    fn daut_atom_roundtrip() {
+        let w = encode_atom_do_transition_auto(0);
+        let atoms = parse_atoms(&w).unwrap();
+        assert_eq!(atoms.len(), 1);
+        assert_eq!(atoms[0].name.0, *b"DAut");
+        assert_eq!(atoms[0].data, [0, 0, 0, 0]);
+        let w2 = encode_atom_do_transition_auto(1);
+        assert_eq!(parse_atoms(&w2).unwrap()[0].data, [1, 0, 0, 0]);
     }
 }

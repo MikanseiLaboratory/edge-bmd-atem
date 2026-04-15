@@ -159,6 +159,27 @@ impl AtemPacket {
         }
     }
 
+    /// Non-control packet whose payload is a raw atom blob (length-prefixed records).
+    #[must_use]
+    pub fn with_atoms(
+        flags: AtemPacketFlags,
+        session_id: u16,
+        acked_packet_id: u16,
+        client_packet_id: u16,
+        sender_packet_id: u16,
+        atoms: alloc::vec::Vec<u8>,
+    ) -> Self {
+        Self {
+            flags,
+            session_id,
+            acked_packet_id,
+            unknown: 0,
+            client_packet_id,
+            sender_packet_id,
+            payload: AtemPacketPayload::Atoms(atoms),
+        }
+    }
+
     /// Total serialized length including header.
     #[must_use]
     pub fn wire_len(&self) -> usize {
@@ -289,6 +310,9 @@ impl AtemPacket {
 
 #[cfg(test)]
 mod tests {
+    use alloc::string::String;
+    use alloc::vec::Vec;
+
     use super::*;
 
     fn from_hex(s: &str) -> Vec<u8> {

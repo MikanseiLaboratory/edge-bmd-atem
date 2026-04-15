@@ -25,7 +25,7 @@ mod packet;
 mod session;
 mod udp;
 
-pub use atoms::{parse_atoms, AtomIter, FourCc, RawAtom};
+pub use atoms::{encode_atom_do_transition_auto, parse_atoms, AtomIter, FourCc, RawAtom};
 pub use error::Error;
 pub use packet::{AtemControl, AtemPacket, AtemPacketFlags, AtemPacketPayload};
 #[cfg(feature = "std")]
