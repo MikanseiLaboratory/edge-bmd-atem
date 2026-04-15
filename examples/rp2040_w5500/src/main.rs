@@ -1,4 +1,9 @@
-//! RP2040 + W5500 (Embassy): DHCP, ATEM connect, then periodic **Auto** (`DAut` / DoTransitionAuto).
+//! RP2040 + W5500 (Embassy): DHCP, ATEM connect, then after `InCm`:
+//! - One packet with **`CTTp`** (next Auto transition style) and, if enabled, **`CPvI` / `CPgI`**
+//!   (preview/program — **off by default** so routing is not changed unexpectedly).
+//! - Periodic **`DAut`** (Auto transition).
+//! - Optional one-shot **`FtbA`** after a delay (`FTB_AUTO_DEMO_AFTER_SECS`), optional one **`DCut`**
+//!   (`SEND_DEMO_CUT_AFTER_INCM`).
 //!
 //! Edit `ATEM_IPV4` before flashing. See `README.md` in this directory.
 
@@ -13,8 +18,10 @@ use core::net::Ipv4Addr;
 
 use defmt::*;
 use edge_bmd_atem::{
-    encode_atom_do_transition_auto, AtomIter, AtemControl, AtemPacket, AtemPacketFlags,
-    AtemPacketPayload, ATEM_UDP_PORT,
+    encode_atom_change_preview_input, encode_atom_change_program_input,
+    encode_atom_change_transition_next, encode_atom_do_ftb_auto, encode_atom_do_transition_auto,
+    encode_atom_do_transition_cut, AtomIter, AtemControl, AtemPacket, AtemPacketFlags,
+    AtemPacketPayload, NextTransitionStyle, ATEM_UDP_PORT,
     Error as PError,
 };
 use embedded_alloc::LlffHeap;
@@ -50,6 +57,22 @@ const ATEM_INIT_SID: u16 = 0x2970;
 
 /// Mix effect index for `DoTransitionAuto` (`0` = ME1).
 const ATEM_ME_INDEX: u8 = 0;
+
+/// Style for the next **Auto** (`CTTp` / `ChangeTransitionNext`).
+const NEXT_AUTO_TRANSITION: NextTransitionStyle = NextTransitionStyle::Mix;
+
+/// If true, sends `CPvI` / `CPgI` once after `InCm` (changes preview/program — use with care).
+const SEND_INPUT_CHANGES_AFTER_INCM: bool = false;
+
+/// BMD video source ids when [`SEND_INPUT_CHANGES_AFTER_INCM`] is true (see necromancer `VideoSource`).
+const PREVIEW_INPUT: u16 = 2;
+const PROGRAM_INPUT: u16 = 1;
+
+/// After `InCm`, send one **`FtbA`** when this many seconds elapse (`0` = never).
+const FTB_AUTO_DEMO_AFTER_SECS: u64 = 0;
+
+/// If true, sends one **`DCut`** immediately after the post-InCm atom packet (off by default).
+const SEND_DEMO_CUT_AFTER_INCM: bool = false;
 
 /// Seconds between **Auto** (transition) commands while connected.
 const AUTO_TRANSITION_INTERVAL_SECS: u64 = 10;
@@ -236,6 +259,57 @@ async fn pump_switcher(
     false
 }
 
+#[inline]
+fn bump_sender_packet_id(pid: u16) -> u16 {
+    if pid >= AtemPacket::MAX_PACKET_ID {
+        1
+    } else {
+        pid + 1
+    }
+}
+
+/// Build post-`InCm` atom blob: `CTTp` plus optional `CPvI` / `CPgI`.
+fn post_incm_config_atoms(out: &mut [u8; 36]) -> usize {
+    let mut off = 0;
+    let cttp = encode_atom_change_transition_next(ATEM_ME_INDEX, NEXT_AUTO_TRANSITION);
+    out[off..off + 12].copy_from_slice(&cttp);
+    off += 12;
+    if SEND_INPUT_CHANGES_AFTER_INCM {
+        let cpvi = encode_atom_change_preview_input(ATEM_ME_INDEX, PREVIEW_INPUT);
+        out[off..off + 12].copy_from_slice(&cpvi);
+        off += 12;
+        let cpgi = encode_atom_change_program_input(ATEM_ME_INDEX, PROGRAM_INPUT);
+        out[off..off + 12].copy_from_slice(&cpgi);
+        off += 12;
+    }
+    off
+}
+
+fn write_atoms_cmd(
+    session_id: u16,
+    sender_pid: u16,
+    atom_blob: &[u8],
+    tx_cmd: &mut [u8],
+) -> Result<usize, PError> {
+    let pkt = AtemPacket::with_atoms(
+        AtemPacketFlags {
+            ack: true,
+            ..AtemPacketFlags::default()
+        },
+        session_id,
+        0,
+        0,
+        sender_pid,
+        Vec::from(atom_blob),
+    );
+    let n = pkt.wire_len();
+    if n > tx_cmd.len() {
+        return Err(PError::InvalidLength);
+    }
+    pkt.write_into(&mut tx_cmd[..n])?;
+    Ok(n)
+}
+
 #[embassy_executor::task]
 async fn ethernet_task(
     runner: Runner<
@@ -305,11 +379,12 @@ async fn main(spawner: Spawner) {
     let o = atem.octets();
     let atem_ip = Ipv4Address::new(o[0], o[1], o[2], o[3]);
     info!(
-        "ATEM {}:{} — Auto (ME{}) every {} s",
+        "ATEM {}:{} — ME{}: CTTp (+ optional CPvI/CPgI) after InCm; DAut every {} s; FtbA demo after {} s (0=off)",
         atem,
         ATEM_UDP_PORT,
         ATEM_ME_INDEX,
-        AUTO_TRANSITION_INTERVAL_SECS
+        AUTO_TRANSITION_INTERVAL_SECS,
+        FTB_AUTO_DEMO_AFTER_SECS
     );
 
     let mut socket = UdpSocket::new(
@@ -368,9 +443,64 @@ async fn main(spawner: Spawner) {
     }
 
     let mut next_sender: u16 = 1;
+    let mut atoms_staging = [0u8; 36];
+    let post_len = post_incm_config_atoms(&mut atoms_staging);
+    match write_atoms_cmd(
+        session_id,
+        next_sender,
+        &atoms_staging[..post_len],
+        &mut tx_cmd,
+    ) {
+        Ok(n) => match socket.send_to(&tx_cmd[..n], (atem_ip, ATEM_UDP_PORT)).await {
+            Ok(()) => {
+                info!(
+                    "Sent post-InCm atoms ({} B) sender_pid={}",
+                    post_len, next_sender
+                );
+                next_sender = bump_sender_packet_id(next_sender);
+            }
+            Err(_) => warn!("post-InCm atoms: UDP send failed"),
+        },
+        Err(_) => warn!("post-InCm atoms: encode failed"),
+    }
+
+    if SEND_DEMO_CUT_AFTER_INCM {
+        let cut = encode_atom_do_transition_cut(ATEM_ME_INDEX);
+        match write_atoms_cmd(session_id, next_sender, &cut, &mut tx_cmd) {
+            Ok(n) => match socket.send_to(&tx_cmd[..n], (atem_ip, ATEM_UDP_PORT)).await {
+                Ok(()) => {
+                    info!("Sent demo DCut sender_pid={}", next_sender);
+                    next_sender = bump_sender_packet_id(next_sender);
+                }
+                Err(_) => warn!("demo DCut: UDP send failed"),
+            },
+            Err(_) => warn!("demo DCut: encode failed"),
+        }
+    }
+
+    let ready_at = Instant::now();
+    let mut ftb_demo_sent = false;
     let mut next_auto = Instant::now() + Duration::from_secs(AUTO_TRANSITION_INTERVAL_SECS);
 
     loop {
+        if FTB_AUTO_DEMO_AFTER_SECS > 0 && !ftb_demo_sent {
+            let elapsed = Instant::now().saturating_duration_since(ready_at);
+            if elapsed >= Duration::from_secs(FTB_AUTO_DEMO_AFTER_SECS) {
+                let ftb = encode_atom_do_ftb_auto(ATEM_ME_INDEX);
+                match write_atoms_cmd(session_id, next_sender, &ftb, &mut tx_cmd) {
+                    Ok(n) => match socket.send_to(&tx_cmd[..n], (atem_ip, ATEM_UDP_PORT)).await {
+                        Ok(()) => {
+                            info!("Sent FtbA demo sender_pid={}", next_sender);
+                            next_sender = bump_sender_packet_id(next_sender);
+                            ftb_demo_sent = true;
+                        }
+                        Err(_) => warn!("FtbA demo: UDP send failed"),
+                    },
+                    Err(_) => warn!("FtbA demo: encode failed"),
+                }
+            }
+        }
+
         pump_switcher(
             &mut socket,
             atem_ip,
@@ -387,22 +517,7 @@ async fn main(spawner: Spawner) {
         let atom = encode_atom_do_transition_auto(ATEM_ME_INDEX);
         // Matches necromancer `handle_queued_command`: `new_atoms` uses assigned
         // `session_id`, `acked_packet_id` / `client_packet_id` = 0, monotonic `sender_packet_id`.
-        let auto_cmd = AtemPacket::with_atoms(
-            AtemPacketFlags {
-                ack: true,
-                ..AtemPacketFlags::default()
-            },
-            session_id,
-            0,
-            0,
-            next_sender,
-            Vec::from(atom),
-        );
-        let send_res = (|| {
-            let n = auto_cmd.wire_len();
-            auto_cmd.write_into(&mut tx_cmd[..n])?;
-            Ok::<usize, PError>(n)
-        })();
+        let send_res = write_atoms_cmd(session_id, next_sender, &atom, &mut tx_cmd);
 
         match send_res {
             Ok(n) => {
@@ -424,11 +539,7 @@ async fn main(spawner: Spawner) {
                     }
                 }
                 if sent {
-                    next_sender = if next_sender >= AtemPacket::MAX_PACKET_ID {
-                        1
-                    } else {
-                        next_sender + 1
-                    };
+                    next_sender = bump_sender_packet_id(next_sender);
                 }
             }
             Err(_) => warn!("Auto encode failed"),
