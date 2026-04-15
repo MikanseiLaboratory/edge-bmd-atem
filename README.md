@@ -5,7 +5,7 @@ Blackmagic Design ATEM control protocol (UDP / BURP) for embedded Rust, aligned 
 ## Layout
 
 - `#![no_std]` + `alloc` library: UDP traits in [`io`](src/io.rs), packet codec, session helpers.
-- Enable **`std`** for Tokio-based unit tests and [`AtemSession::connect`](src/session.rs).
+- Enable **`std`** for Tokio-based unit tests and the `std_handshake` example.
 
 ## Build
 
@@ -16,8 +16,8 @@ cargo test --features std
 
 ## ATEM on a microcontroller
 
-1. Implement [`edge_bmd_atem::io::UdpSend`](src/io.rs) and [`UdpReceive`](src/io.rs) for your stack (for example wrap `edge-nal-embassy` types in a newtype and delegate; API matches `edge-nal` 0.6).
-2. Call [`AtemPacket::decode`](src/packet.rs) / [`write_into`](src/packet.rs) for framing, or use [`AtemSession`](src/session.rs) on **host** (`std` feature) while iterating on-device wiring.
+1. Implement [`UdpSend`](src/io.rs), [`UdpReceive`](src/io.rs), and [`UdpReceiveBounded`](src/io.rs) for your stack (for example wrap `edge-nal-embassy` types in a newtype and delegate; API matches `edge-nal` 0.6). `UdpReceiveBounded` is typically `select(recv, timer)` on the wait slice.
+2. Call [`AtemPacket::decode`](src/packet.rs) / [`write_into`](src/packet.rs) for framing, or [`AtemSession::connect`](src/session.rs) with a monotonic `now_ms` closure.
 
 Default UDP port: [`ATEM_UDP_PORT`](src/lib.rs) (9910).
 

@@ -21,7 +21,7 @@ use std::str::FromStr as _;
 use std::time::Duration;
 
 use clap::Parser;
-use edge_bmd_atem::io::{ErrorType, UdpReceive, UdpSend};
+use edge_bmd_atem::io::{ErrorType, UdpReceive, UdpReceiveBounded, UdpSend};
 use edge_bmd_atem::{
     AtemControl, AtemPacket, AtemPacketPayload, AtemSession, SessionConfig, ATEM_UDP_PORT,
 };
@@ -56,6 +56,21 @@ impl UdpSend for TokioUdp {
 impl UdpReceive for TokioUdp {
     async fn receive(&mut self, buffer: &mut [u8]) -> Result<(usize, SocketAddr), Self::Error> {
         self.sock.recv_from(buffer).await
+    }
+}
+
+impl UdpReceiveBounded for TokioUdp {
+    async fn receive_for(
+        &mut self,
+        buffer: &mut [u8],
+        timeout_ms: u32,
+    ) -> Result<Option<(usize, SocketAddr)>, Self::Error> {
+        let dur = std::time::Duration::from_millis(u64::from(timeout_ms.max(1)));
+        match tokio::time::timeout(dur, self.sock.recv_from(buffer)).await {
+            Ok(Ok(v)) => Ok(Some(v)),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Ok(None),
+        }
     }
 }
 
@@ -103,6 +118,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("bound local {}", udp.socket().local_addr()?);
     }
 
+    let t0 = std::time::Instant::now();
     let session = AtemSession::connect(
         &mut udp,
         atem,
@@ -111,6 +127,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             init_timeout_ms: timeout_ms,
             ..SessionConfig::default()
         },
+        || t0.elapsed().as_millis() as u32,
     )
     .await?;
 

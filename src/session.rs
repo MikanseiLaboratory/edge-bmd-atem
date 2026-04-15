@@ -4,13 +4,10 @@ use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use core::net::SocketAddr;
 
-#[cfg(feature = "std")]
-use crate::io::{UdpReceive, UdpSend};
-#[cfg(feature = "std")]
-use crate::Error;
+use crate::io::{UdpReceiveBounded, UdpSend};
 use crate::packet::AtemPacket;
-#[cfg(feature = "std")]
 use crate::packet::{AtemControl, AtemPacketFlags};
+use crate::Error;
 
 /// Tunables for queues and timing (MCU-friendly defaults).
 #[derive(Debug, Clone)]
@@ -55,14 +52,12 @@ pub struct PendingPacket {
 }
 
 /// Maps UDP failures or protocol errors for [`AtemSession::connect`].
-#[cfg(feature = "std")]
 #[derive(Debug)]
 pub enum SessionError<E> {
     Protocol(Error),
     Backend(E),
 }
 
-#[cfg(feature = "std")]
 impl<E: core::fmt::Debug> core::fmt::Display for SessionError<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
@@ -86,15 +81,20 @@ pub struct AtemSession {
 
 impl AtemSession {
     /// Full UDP handshake + initial state dump request (necromancer `initialise` subset).
-    #[cfg(feature = "std")]
-    pub async fn connect<S>(
+    ///
+    /// `now_ms` must read a **monotonic** millisecond counter (wrapping `u32` arithmetic is
+    /// fine for handshake-length windows). Used with [`UdpReceiveBounded::receive_for`] to
+    /// bound total wait to [`SessionConfig::init_timeout_ms`].
+    pub async fn connect<S, F>(
         udp: &mut S,
         remote: SocketAddr,
         initial_session_id: u16,
         config: SessionConfig,
+        mut now_ms: F,
     ) -> Result<Self, SessionError<S::Error>>
     where
-        S: UdpSend + UdpReceive,
+        S: UdpSend + UdpReceiveBounded,
+        F: FnMut() -> u32,
     {
         if !(1..=0x7fff).contains(&initial_session_id) {
             return Err(SessionError::Protocol(Error::UnexpectedState));
@@ -122,19 +122,23 @@ impl AtemSession {
             .map_err(SessionError::Backend)?;
 
         let mut rx = [0u8; 2048];
-        let deadline = std::time::Instant::now()
-            + std::time::Duration::from_millis(u64::from(config.init_timeout_ms.max(1)));
+        let t0 = now_ms();
+        let limit = config.init_timeout_ms.max(1);
 
         let (switcher_pid, session_id) = loop {
-            if std::time::Instant::now() > deadline {
+            let elapsed = now_ms().wrapping_sub(t0);
+            if elapsed >= limit {
                 return Err(SessionError::Protocol(Error::Timeout));
             }
-            let left = deadline.saturating_duration_since(std::time::Instant::now());
-            let fut = udp.receive(&mut rx);
-            let (m, _src) = tokio::time::timeout(left, fut)
+            let left = limit - elapsed;
+            let slice = left.min(1000).max(1);
+            let got = udp
+                .receive_for(&mut rx, slice)
                 .await
-                .map_err(|_| SessionError::Protocol(Error::Timeout))?
                 .map_err(SessionError::Backend)?;
+            let Some((m, _src)) = got else {
+                continue;
+            };
             if m < crate::packet::AtemPacket::HEADER_LEN {
                 continue;
             }
@@ -308,6 +312,7 @@ async fn mock_handshake() {
         outbound: Vec::new(),
     };
 
+    let t0 = std::time::Instant::now();
     let session = AtemSession::connect(
         &mut udp,
         remote,
@@ -316,6 +321,7 @@ async fn mock_handshake() {
             init_timeout_ms: 500,
             ..SessionConfig::default()
         },
+        || t0.elapsed().as_millis() as u32,
     )
     .await
     .expect("handshake");

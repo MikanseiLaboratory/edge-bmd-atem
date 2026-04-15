@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use core::fmt;
 use core::net::SocketAddr;
 
-use crate::io::{ErrorType, UdpReceive, UdpSend};
+use crate::io::{ErrorType, UdpReceive, UdpReceiveBounded, UdpSend};
 use embedded_io_async::{Error as EioError, ErrorKind};
 
 /// [`MockUdp`] ran out of preloaded datagrams.
@@ -55,6 +55,16 @@ impl UdpSend for MockUdp {
     }
 }
 
+impl UdpReceiveBounded for MockUdp {
+    async fn receive_for(
+        &mut self,
+        buffer: &mut [u8],
+        _timeout_ms: u32,
+    ) -> Result<Option<(usize, SocketAddr)>, Self::Error> {
+        self.receive(buffer).await.map(Some)
+    }
+}
+
 /// Forwards [`UdpSend::send`] to a fixed `peer` (connected-style ergonomics).
 pub struct EdgeNalUdp<S> {
     inner: S,
@@ -89,5 +99,15 @@ impl<S: UdpReceive> UdpReceive for EdgeNalUdp<S> {
 impl<S: UdpSend> UdpSend for EdgeNalUdp<S> {
     async fn send(&mut self, _remote: SocketAddr, data: &[u8]) -> Result<(), Self::Error> {
         self.inner.send(self.peer, data).await
+    }
+}
+
+impl<S: UdpReceiveBounded> UdpReceiveBounded for EdgeNalUdp<S> {
+    async fn receive_for(
+        &mut self,
+        buffer: &mut [u8],
+        timeout_ms: u32,
+    ) -> Result<Option<(usize, SocketAddr)>, Self::Error> {
+        self.inner.receive_for(buffer, timeout_ms).await
     }
 }
