@@ -25,7 +25,12 @@ mod packet;
 mod session;
 mod udp;
 
-pub use atoms::{encode_atom_do_transition_auto, parse_atoms, AtomIter, FourCc, RawAtom};
+pub use atoms::{
+    encode_atom_change_program_input, encode_atom_change_preview_input,
+    encode_atom_change_transition_next, encode_atom_do_ftb_auto, encode_atom_do_ftb_cut,
+    encode_atom_do_transition_auto, encode_atom_do_transition_cut, parse_atoms, AtomIter, FourCc,
+    NextTransitionStyle, RawAtom,
+};
 pub use error::Error;
 pub use packet::{AtemControl, AtemPacket, AtemPacketFlags, AtemPacketPayload};
 #[cfg(feature = "std")]

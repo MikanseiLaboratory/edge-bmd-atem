@@ -129,15 +129,110 @@ pub struct RawAtomSlice<'a> {
 /// `me` is the mix-effect index (`0` = first ME). Padding matches necromancer `pad_size_to = 4`.
 #[must_use]
 pub const fn encode_atom_do_transition_auto(me: u8) -> [u8; 12] {
+    atom_me_only(*b"DAut", me)
+}
+
+/// One `DCut` atom (`DoTransitionCut`): swap program and preview immediately (Cut button).
+#[must_use]
+pub const fn encode_atom_do_transition_cut(me: u8) -> [u8; 12] {
+    atom_me_only(*b"DCut", me)
+}
+
+/// Next transition style for [`encode_atom_change_transition_next`] (`CTTp` / `ChangeTransitionNext`).
+///
+/// Values match necromancer `TransitionType` (Mix=0 … Sting=4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum NextTransitionStyle {
+    Mix = 0,
+    Dip = 1,
+    Wipe = 2,
+    Dve = 3,
+    Sting = 4,
+}
+
+impl NextTransitionStyle {
+    #[must_use]
+    pub const fn to_wire(self) -> u8 {
+        self as u8
+    }
+}
+
+/// One `CTTp` atom (`ChangeTransitionNext`): select which transition type the next Auto uses.
+#[must_use]
+pub const fn encode_atom_change_transition_next(me: u8, style: NextTransitionStyle) -> [u8; 12] {
     [
         0x00,
         0x0c,
         0x00,
         0x00,
-        b'D',
-        b'A',
+        b'C',
+        b'T',
+        b'T',
+        b'p',
+        me,
+        style.to_wire(),
+        0,
+        0,
+    ]
+}
+
+/// One `CPvI` atom (`ChangePreviewInput`): set preview bus input for `me`.
+///
+/// `video_source` is the BMD video source id (big-endian `u16` on the wire), e.g. `1` = Input1.
+#[must_use]
+pub const fn encode_atom_change_preview_input(me: u8, video_source: u16) -> [u8; 12] {
+    let [sh, sl] = video_source.to_be_bytes();
+    [
+        0x00, 0x0c, 0x00, 0x00, b'C', b'P', b'v', b'I', me, 0, sh, sl,
+    ]
+}
+
+/// One `CPgI` atom (`ChangeProgramInput`): set program bus input for `me`.
+#[must_use]
+pub const fn encode_atom_change_program_input(me: u8, video_source: u16) -> [u8; 12] {
+    let [sh, sl] = video_source.to_be_bytes();
+    [
+        0x00, 0x0c, 0x00, 0x00, b'C', b'P', b'g', b'I', me, 0, sh, sl,
+    ]
+}
+
+/// One `FtbA` atom (`FadeToBlackAuto` / `DoFtbAuto`): fade to black using the configured FTB rate.
+#[must_use]
+pub const fn encode_atom_do_ftb_auto(me: u8) -> [u8; 12] {
+    atom_me_only(*b"FtbA", me)
+}
+
+/// One `FCut` atom (`CutToBlack` / `DoFtbCut`): cut program to/from black (`black` = target state).
+#[must_use]
+pub const fn encode_atom_do_ftb_cut(me: u8, black: bool) -> [u8; 12] {
+    [
+        0x00,
+        0x0c,
+        0x00,
+        0x00,
+        b'F',
+        b'C',
         b'u',
         b't',
+        me,
+        if black { 1 } else { 0 },
+        0,
+        0,
+    ]
+}
+
+#[must_use]
+const fn atom_me_only(fourcc: [u8; 4], me: u8) -> [u8; 12] {
+    [
+        0x00,
+        0x0c,
+        0x00,
+        0x00,
+        fourcc[0],
+        fourcc[1],
+        fourcc[2],
+        fourcc[3],
         me,
         0,
         0,
@@ -148,6 +243,7 @@ pub const fn encode_atom_do_transition_auto(me: u8) -> [u8; 12] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::string::String;
 
     #[test]
     fn rfip_first_atom_from_necromancer_dump() {
@@ -171,5 +267,45 @@ mod tests {
         assert_eq!(atoms[0].data, [0, 0, 0, 0]);
         let w2 = encode_atom_do_transition_auto(1);
         assert_eq!(parse_atoms(&w2).unwrap()[0].data, [1, 0, 0, 0]);
+    }
+
+    #[test]
+    fn dcut_matches_necromancer_vector() {
+        let w = encode_atom_do_transition_cut(0);
+        assert_eq!(w.as_slice(), hex("000c00004443757400000000").as_slice());
+    }
+
+    fn hex(s: &str) -> Vec<u8> {
+        let s: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn cpvi_cpgi_match_necromancer_vectors() {
+        let cpvi = encode_atom_change_preview_input(0, 2);
+        let exp_cpvi = hex("000c00004350764900000002");
+        assert_eq!(cpvi.as_slice(), exp_cpvi.as_slice());
+
+        let cpgi = encode_atom_change_program_input(0, 3);
+        let exp_cpgi = hex("000c00004350674900000003");
+        assert_eq!(cpgi.as_slice(), exp_cpgi.as_slice());
+    }
+
+    #[test]
+    fn cttp_wipe_me1() {
+        let w = encode_atom_change_transition_next(1, NextTransitionStyle::Wipe);
+        assert_eq!(parse_atoms(&w).unwrap()[0].data, [1, 2, 0, 0]);
+    }
+
+    #[test]
+    fn ftb_atoms_roundtrip() {
+        let a = encode_atom_do_ftb_auto(0);
+        assert_eq!(parse_atoms(&a).unwrap()[0].name.0, *b"FtbA");
+        let c = encode_atom_do_ftb_cut(0, true);
+        assert_eq!(parse_atoms(&c).unwrap()[0].name.0, *b"FCut");
+        assert_eq!(parse_atoms(&c).unwrap()[0].data, [0, 1, 0, 0]);
     }
 }
