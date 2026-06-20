@@ -161,20 +161,7 @@ impl NextTransitionStyle {
 /// One `CTTp` atom (`ChangeTransitionNext`): select which transition type the next Auto uses.
 #[must_use]
 pub const fn encode_atom_change_transition_next(me: u8, style: NextTransitionStyle) -> [u8; 12] {
-    [
-        0x00,
-        0x0c,
-        0x00,
-        0x00,
-        b'C',
-        b'T',
-        b'T',
-        b'p',
-        me,
-        style.to_wire(),
-        0,
-        0,
-    ]
+    [0x00, 0x0c, 0x00, 0x00, b'C', b'T', b'T', b'p', me, style.to_wire(), 0, 0]
 }
 
 /// One `CPvI` atom (`ChangePreviewInput`): set preview bus input for `me`.
@@ -183,18 +170,14 @@ pub const fn encode_atom_change_transition_next(me: u8, style: NextTransitionSty
 #[must_use]
 pub const fn encode_atom_change_preview_input(me: u8, video_source: u16) -> [u8; 12] {
     let [sh, sl] = video_source.to_be_bytes();
-    [
-        0x00, 0x0c, 0x00, 0x00, b'C', b'P', b'v', b'I', me, 0, sh, sl,
-    ]
+    [0x00, 0x0c, 0x00, 0x00, b'C', b'P', b'v', b'I', me, 0, sh, sl]
 }
 
 /// One `CPgI` atom (`ChangeProgramInput`): set program bus input for `me`.
 #[must_use]
 pub const fn encode_atom_change_program_input(me: u8, video_source: u16) -> [u8; 12] {
     let [sh, sl] = video_source.to_be_bytes();
-    [
-        0x00, 0x0c, 0x00, 0x00, b'C', b'P', b'g', b'I', me, 0, sh, sl,
-    ]
+    [0x00, 0x0c, 0x00, 0x00, b'C', b'P', b'g', b'I', me, 0, sh, sl]
 }
 
 /// One `FtbA` atom (`FadeToBlackAuto` / `DoFtbAuto`): fade to black using the configured FTB rate.
@@ -206,38 +189,12 @@ pub const fn encode_atom_do_ftb_auto(me: u8) -> [u8; 12] {
 /// One `FCut` atom (`CutToBlack` / `DoFtbCut`): cut program to/from black (`black` = target state).
 #[must_use]
 pub const fn encode_atom_do_ftb_cut(me: u8, black: bool) -> [u8; 12] {
-    [
-        0x00,
-        0x0c,
-        0x00,
-        0x00,
-        b'F',
-        b'C',
-        b'u',
-        b't',
-        me,
-        if black { 1 } else { 0 },
-        0,
-        0,
-    ]
+    [0x00, 0x0c, 0x00, 0x00, b'F', b'C', b'u', b't', me, if black { 1 } else { 0 }, 0, 0]
 }
 
 #[must_use]
 const fn atom_me_only(fourcc: [u8; 4], me: u8) -> [u8; 12] {
-    [
-        0x00,
-        0x0c,
-        0x00,
-        0x00,
-        fourcc[0],
-        fourcc[1],
-        fourcc[2],
-        fourcc[3],
-        me,
-        0,
-        0,
-        0,
-    ]
+    [0x00, 0x0c, 0x00, 0x00, fourcc[0], fourcc[1], fourcc[2], fourcc[3], me, 0, 0, 0]
 }
 
 #[cfg(test)]
@@ -277,10 +234,7 @@ mod tests {
 
     fn hex(s: &str) -> Vec<u8> {
         let s: String = s.chars().filter(|c| !c.is_whitespace()).collect();
-        (0..s.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
-            .collect()
+        (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
     }
 
     #[test]

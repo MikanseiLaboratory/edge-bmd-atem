@@ -101,10 +101,7 @@ impl AtemSession {
         }
 
         let connect = AtemPacket::new_control(
-            AtemPacketFlags {
-                control: true,
-                ..AtemPacketFlags::default()
-            },
+            AtemPacketFlags { control: true, ..AtemPacketFlags::default() },
             initial_session_id,
             0,
             0xb1,
@@ -113,13 +110,8 @@ impl AtemSession {
         );
         let mut tx = [0u8; 256];
         let n = connect.wire_len();
-        connect
-            .write_into(&mut tx[..n])
-            .map_err(SessionError::Protocol)?;
-        udp
-            .send(remote, &tx[..n])
-            .await
-            .map_err(SessionError::Backend)?;
+        connect.write_into(&mut tx[..n]).map_err(SessionError::Protocol)?;
+        udp.send(remote, &tx[..n]).await.map_err(SessionError::Backend)?;
 
         let mut rx = [0u8; 2048];
         let t0 = now_ms();
@@ -131,11 +123,8 @@ impl AtemSession {
                 return Err(SessionError::Protocol(Error::Timeout));
             }
             let left = limit - elapsed;
-            let slice = left.min(1000).max(1);
-            let got = udp
-                .receive_for(&mut rx, slice)
-                .await
-                .map_err(SessionError::Backend)?;
+            let slice = left.clamp(1, 1000);
+            let got = udp.receive_for(&mut rx, slice).await.map_err(SessionError::Backend)?;
             let Some((m, _src)) = got else {
                 continue;
             };
@@ -158,23 +147,15 @@ impl AtemSession {
         };
 
         let dump_req = AtemPacket::new(
-            AtemPacketFlags {
-                response: true,
-                ..AtemPacketFlags::default()
-            },
+            AtemPacketFlags { response: true, ..AtemPacketFlags::default() },
             initial_session_id,
             switcher_pid,
             0xd4,
             0,
         );
         let n2 = dump_req.wire_len();
-        dump_req
-            .write_into(&mut tx[..n2])
-            .map_err(SessionError::Protocol)?;
-        udp
-            .send(remote, &tx[..n2])
-            .await
-            .map_err(SessionError::Backend)?;
+        dump_req.write_into(&mut tx[..n2]).map_err(SessionError::Protocol)?;
+        udp.send(remote, &tx[..n2]).await.map_err(SessionError::Backend)?;
 
         Ok(Self {
             state: SessionState {
@@ -197,11 +178,7 @@ impl AtemSession {
     /// Allocate the next local `sender_packet_id` (1..=0x7fff, wrapping).
     pub fn take_sender_packet_id(&mut self) -> u16 {
         let v = self.next_sender_packet_id;
-        self.next_sender_packet_id = if v >= AtemPacket::MAX_PACKET_ID {
-            1
-        } else {
-            v + 1
-        };
+        self.next_sender_packet_id = if v >= AtemPacket::MAX_PACKET_ID { 1 } else { v + 1 };
         v
     }
 
@@ -294,10 +271,7 @@ async fn mock_handshake() {
     let init = 0x2970u16;
 
     let switcher_ack = AtemPacket::new_control(
-        AtemPacketFlags {
-            control: true,
-            ..AtemPacketFlags::default()
-        },
+        AtemPacketFlags { control: true, ..AtemPacketFlags::default() },
         init,
         0,
         0,
@@ -307,20 +281,14 @@ async fn mock_handshake() {
     let mut inbound = VecDeque::new();
     inbound.push_back((remote, switcher_ack.to_bytes()));
 
-    let mut udp = MockUdp {
-        inbound,
-        outbound: Vec::new(),
-    };
+    let mut udp = MockUdp { inbound, outbound: Vec::new() };
 
     let t0 = std::time::Instant::now();
     let session = AtemSession::connect(
         &mut udp,
         remote,
         init,
-        SessionConfig {
-            init_timeout_ms: 500,
-            ..SessionConfig::default()
-        },
+        SessionConfig { init_timeout_ms: 500, ..SessionConfig::default() },
         || t0.elapsed().as_millis() as u32,
     )
     .await

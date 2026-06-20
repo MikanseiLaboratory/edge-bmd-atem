@@ -1,5 +1,7 @@
 # edge-bmd-atem
 
+[![CI](https://github.com/MikanseiLaboratory/edge-bmd-atem/actions/workflows/ci.yml/badge.svg)](https://github.com/MikanseiLaboratory/edge-bmd-atem/actions/workflows/ci.yml)
+
 Blackmagic Design ATEM control protocol (UDP / BURP) for embedded Rust, aligned with [edge-net](https://github.com/sysgrok/edge-net) / Embassy style stacks.
 
 ## Layout
