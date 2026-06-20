@@ -236,8 +236,7 @@ impl AtemPacket {
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut v = alloc::vec![0u8; self.wire_len()];
-        self.write_into(&mut v)
-            .expect("buffer sized to wire_len() must succeed");
+        self.write_into(&mut v).expect("buffer sized to wire_len() must succeed");
         v
     }
 
@@ -296,10 +295,7 @@ impl AtemPacket {
             return None;
         }
         Some(Self::new(
-            AtemPacketFlags {
-                response: true,
-                ..AtemPacketFlags::default()
-            },
+            AtemPacketFlags { response: true, ..AtemPacketFlags::default() },
             self.session_id,
             self.sender_packet_id,
             0,
@@ -317,19 +313,13 @@ mod tests {
 
     fn from_hex(s: &str) -> Vec<u8> {
         let s: String = s.chars().filter(|c| !c.is_whitespace()).collect();
-        (0..s.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
-            .collect()
+        (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
     }
 
     #[test]
     fn control_connect_roundtrip() {
         let expected = AtemPacket::new_control(
-            AtemPacketFlags {
-                control: true,
-                ..AtemPacketFlags::default()
-            },
+            AtemPacketFlags { control: true, ..AtemPacketFlags::default() },
             0x2970,
             0,
             0xb1,
@@ -345,10 +335,7 @@ mod tests {
     #[test]
     fn control_connect_ack_roundtrip() {
         let expected = AtemPacket::new_control(
-            AtemPacketFlags {
-                control: true,
-                ..AtemPacketFlags::default()
-            },
+            AtemPacketFlags { control: true, ..AtemPacketFlags::default() },
             0x2970,
             0,
             0,

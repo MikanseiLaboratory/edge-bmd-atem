@@ -123,10 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &mut udp,
         atem,
         init_sid,
-        SessionConfig {
-            init_timeout_ms: timeout_ms,
-            ..SessionConfig::default()
-        },
+        SessionConfig { init_timeout_ms: timeout_ms, ..SessionConfig::default() },
         || t0.elapsed().as_millis() as u32,
     )
     .await?;
@@ -149,12 +146,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn env_flag_truthy(name: &str) -> bool {
     env::var(name)
         .ok()
-        .map(|v| {
-            matches!(
-                v.to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
         .unwrap_or(false)
 }
 
@@ -176,8 +168,7 @@ fn parse_init_sid() -> Result<u16, Box<dyn std::error::Error>> {
     let v = if let Some(hex) = raw.strip_prefix("0x").or_else(|| raw.strip_prefix("0X")) {
         u16::from_str_radix(hex, 16).map_err(|_| "ATEM_INIT_SID: invalid hex u16")?
     } else {
-        raw.parse::<u16>()
-            .map_err(|_| "ATEM_INIT_SID: expected u16 or 0x-prefixed hex")?
+        raw.parse::<u16>().map_err(|_| "ATEM_INIT_SID: expected u16 or 0x-prefixed hex")?
     };
     if !(1..=0x7fff).contains(&v) {
         return Err("ATEM_INIT_SID must be in 1..=0x7fff".into());
@@ -187,9 +178,7 @@ fn parse_init_sid() -> Result<u16, Box<dyn std::error::Error>> {
 
 fn parse_timeout_ms() -> Result<u32, Box<dyn std::error::Error>> {
     let raw = env::var("ATEM_TIMEOUT_MS").unwrap_or_else(|_| "3000".into());
-    let v: u32 = raw
-        .parse()
-        .map_err(|_| "ATEM_TIMEOUT_MS: expected positive u32")?;
+    let v: u32 = raw.parse().map_err(|_| "ATEM_TIMEOUT_MS: expected positive u32")?;
     if v == 0 {
         return Err("ATEM_TIMEOUT_MS must be >= 1".into());
     }
@@ -200,9 +189,7 @@ fn parse_listen_ms_env() -> Result<Option<u64>, Box<dyn std::error::Error>> {
     let Ok(raw) = env::var("ATEM_LISTEN_MS") else {
         return Ok(None);
     };
-    let v: u64 = raw
-        .parse()
-        .map_err(|_| "ATEM_LISTEN_MS: expected u64 milliseconds")?;
+    let v: u64 = raw.parse().map_err(|_| "ATEM_LISTEN_MS: expected u64 milliseconds")?;
     Ok(Some(v))
 }
 
