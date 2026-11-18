@@ -1,28 +1,66 @@
-# edge-bmd-atem
+# edge-bmd-atem — **ARCHIVED**
 
-[![CI](https://github.com/MikanseiLaboratory/edge-bmd-atem/actions/workflows/ci.yml/badge.svg)](https://github.com/MikanseiLaboratory/edge-bmd-atem/actions/workflows/ci.yml)
+> **This crate is archived. Development continues in
+> [`MikanseiLaboratory/embassy-bmd-atem`](https://github.com/MikanseiLaboratory/embassy-bmd-atem).**
+>
+> The UDP/BURP implementation that lived here is now `embassy_bmd_atem::udp`, and the
+> same crate also implements the ATEM **USB-C 8.6+** control link
+> (`embassy_bmd_atem::usb`, host side, verified against real hardware).
+> The repository is read-only; git dependencies pinned to this URL keep working,
+> but new code should depend on the published crates below.
 
-Blackmagic Design ATEM control protocol (UDP / BURP) for embedded Rust, aligned with [edge-net](https://github.com/sysgrok/edge-net) / Embassy style stacks.
+## Where to go
 
-## Layout
+| Published crate | Contents |
+|---|---|
+| [`embassy-bmd-atem`](https://crates.io/crates/embassy-bmd-atem) | UDP/BURP **and** USB 8.6+ protocol core, `no_std` |
+| [`bmd-atem-atom`](https://crates.io/crates/bmd-atem-atom) | transport-independent atom (command record) codec |
+| [`embassy-bmd-atem-std`](https://crates.io/crates/embassy-bmd-atem-std) | Tokio + nusb desktop backend and the `atem-usb-control` CLI |
 
-- `#![no_std]` + `alloc` library: UDP traits in [`io`](src/io.rs), packet codec, session helpers.
-- Enable **`std`** for Tokio-based unit tests and the `std_handshake` example.
+## Migration
 
-## Build
+The wire format, the atom codec and the UDP session logic were carried over
+unchanged; only the crate and module paths moved.
 
-```sh
-cargo check
-cargo test --features std
+```toml
+# before
+edge_bmd_atem = { git = "https://github.com/MikanseiLaboratory/edge-bmd-atem", default-features = false }
+
+# after (published)
+embassy-bmd-atem = { version = "0.1", default-features = false }
+
+# or, pinned to the repository
+embassy-bmd-atem = { git = "https://github.com/MikanseiLaboratory/embassy-bmd-atem", default-features = false }
 ```
 
-## ATEM on a microcontroller
+```rust
+// before
+use edge_bmd_atem::io::{ErrorType, UdpReceive, UdpReceiveBounded, UdpSend};
+use edge_bmd_atem::{AtemPacket, AtemSession, Error, ATEM_UDP_PORT};
 
-1. Implement [`UdpSend`](src/io.rs), [`UdpReceive`](src/io.rs), and [`UdpReceiveBounded`](src/io.rs) for your stack (for example wrap `edge-nal-embassy` types in a newtype and delegate; API matches `edge-nal` 0.6). `UdpReceiveBounded` is typically `select(recv, timer)` on the wait slice.
-2. Call [`AtemPacket::decode`](src/packet.rs) / [`write_into`](src/packet.rs) for framing, or [`AtemSession::connect`](src/session.rs) with a monotonic `now_ms` closure.
+// after — the same items are re-exported at the crate root
+use embassy_bmd_atem::{ErrorType, UdpReceive, UdpReceiveBounded, UdpSend};
+use embassy_bmd_atem::{AtemPacket, AtemSession, Error, ATEM_UDP_PORT};
+```
 
-Default UDP port: [`ATEM_UDP_PORT`](src/lib.rs) (9910).
+Module paths that used to be flat are available both ways:
+
+| old | new |
+|---|---|
+| `edge_bmd_atem::io` | `embassy_bmd_atem::udp::io` (also re-exported at the root) |
+| `edge_bmd_atem::packet` | `embassy_bmd_atem::udp::packet` |
+| `edge_bmd_atem::session` | `embassy_bmd_atem::udp::session` |
+| `edge_bmd_atem::udp` | `embassy_bmd_atem::udp::mock` |
+| `edge_bmd_atem::{parse_atoms, FourCc, …}` | `embassy_bmd_atem::{parse_atoms, FourCc, …}` (unchanged) |
+
+New capabilities in the successor crate:
+
+- `embassy_bmd_atem::usb` — ATEM USB-C 8.6+ host implementation (framing, credit
+  windows, idle-stall recovery, ZLP keepalive matching pyatem's cadence).
+- `bmd_atem_atom::AtomWriter` — no-alloc command builder shared by both transports.
+- `embassy_bmd_atem::link::{frame_command, TransportKind, FrameContext, FramePlan}`
+  — one command blob, framed for either transport.
 
 ## License
 
-Apache-2.0. See `NOTICE` for necromancer-derived protocol notes.
+Apache-2.0. See `NOTICE` for third-party attribution.
